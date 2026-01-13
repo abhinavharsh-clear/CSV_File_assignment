@@ -1,47 +1,26 @@
 package com.example.demo.service;
 
 import com.example.demo.model.User;
-import org.springframework.beans.factory.annotation.Value;
+import com.example.demo.model.CsvFile;
+import com.example.demo.repository.CsvFileRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class UserService {
 
-    // Configurable upload directory - can be set via application.properties
-    @Value("${app.upload.dir:/Users/abhinav.harsh/Downloads/Testing}")
-    private String uploadDir;
+    private final CsvFileRepository csvFileRepository;
 
-    /**
-     * Save uploaded file to the configured directory
-     * @param file the uploaded CSV file
-     * @return the full file path where it was saved
-     */
-    public String saveUploadedFile(MultipartFile file) {
-        try {
-            String originalFilename = file.getOriginalFilename();
-            String filePath = uploadDir + File.separator + originalFilename;
-
-            // Create directory if it doesn't exist
-            Files.createDirectories(Paths.get(uploadDir));
-
-            // Save the file
-            Files.write(Paths.get(filePath), file.getBytes());
-            System.out.println("✅ File saved to: " + filePath);
-
-            return filePath;
-        } catch (IOException e) {
-            throw new RuntimeException("Error saving uploaded file: " + e.getMessage());
-        }
+    public UserService(CsvFileRepository csvFileRepository) {
+        this.csvFileRepository = csvFileRepository;
     }
 
     /**
-     * Parse and load users from CSV file
+     * Parse and load users from uploaded CSV file
      * @param file the uploaded CSV file
      * @return list of users parsed from the file
      */
@@ -64,53 +43,89 @@ public class UserService {
     }
 
     /**
-     * Write users to CSV file at specified path
-     * @param filePath the path where the file exists
-     * @param users the list of users
+     * Convert CSV content to string for storage
+     * @param file the uploaded CSV file
+     * @return CSV content as string
      */
-    public void writeToCSVFile(String filePath, List<User> users) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(filePath))) {
-            for (User u : users) {
-                writer.println("id=" + u.getId()
-                    + ",email=" + u.getEmail()
-                    + ",name=" + u.getName());
-            }
-            writer.flush();
-            System.out.println("✅ File updated at: " + filePath);
+    private String getCsvContent(MultipartFile file) {
+        try {
+            return new String(file.getBytes());
         } catch (IOException e) {
-            throw new RuntimeException("Error writing to CSV file: " + e.getMessage());
+            throw new RuntimeException("Error reading file content: " + e.getMessage());
         }
+    }
+
+    /**
+     * Write users to CSV string format
+     * @param users the list of users
+     * @return CSV formatted string
+     */
+    private String convertUsersToCSV(List<User> users) {
+        StringBuilder csv = new StringBuilder();
+        for (User u : users) {
+            csv.append("id=").append(u.getId())
+                    .append(",email=").append(u.getEmail())
+                    .append(",name=").append(u.getName())
+                    .append("\n");
+        }
+        return csv.toString();
     }
 
     /* ---------- READ ---------- */
     /**
      * Get all users from the uploaded CSV file
-     * The file is automatically saved to the configured directory
+     * Uploads file to MongoDB
      * @param file the uploaded CSV file
-     * @return list of users and the file path where it was saved
+     * @return map with filename, users, and MongoDB ID
      */
     public Map<String, Object> getAllUsers(MultipartFile file) {
-        String filePath = saveUploadedFile(file);
+        String filename = file.getOriginalFilename();
         List<User> users = parseCSVFile(file);
+        String csvContent = getCsvContent(file);
+
+        // Check if file already exists in DB
+        Optional<CsvFile> existingFile = csvFileRepository.findByFilename(filename);
+
+        CsvFile csvFile;
+        if (existingFile.isPresent()) {
+            // Update existing file with new content
+            csvFile = existingFile.get();
+            csvFile.setUsers(users);
+            csvFile.setCsvContent(csvContent);
+            System.out.println("✅ File already exists in DB, updating: " + filename);
+        } else {
+            // Create new file in DB
+            csvFile = new CsvFile(filename, users, csvContent);
+            System.out.println("✅ New file saved to MongoDB: " + filename);
+        }
+
+        csvFileRepository.save(csvFile);
 
         return Map.of(
-            "filePath", filePath,
+            "filename", filename,
+            "fileId", csvFile.getId(),
             "users", users
         );
     }
 
     /* ---------- CREATE ---------- */
     /**
-     * Create a new user - file is automatically saved to configured directory
-     * @param file the uploaded CSV file
+     * Create a new user
+     * @param filename the filename to fetch from DB
      * @param id the new user ID
      * @param email the new user email
      * @param name the new user name
-     * @return success message with file path
+     * @return success message
      */
-    public String createUser(MultipartFile file, int id, String email, String name) {
-        String filePath = saveUploadedFile(file);
-        List<User> users = parseCSVFile(file);
+    public String createUser(String filename, int id, String email, String name) {
+        // Fetch from MongoDB
+        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
+        if (csvFileOpt.isEmpty()) {
+            throw new RuntimeException("File not found in database: " + filename);
+        }
+
+        CsvFile csvFile = csvFileOpt.get();
+        List<User> users = csvFile.getUsers();
 
         // Check if user with this ID already exists
         for (User u : users) {
@@ -123,25 +138,32 @@ public class UserService {
         User newUser = new User(id, email, name);
         users.add(newUser);
 
-        // Write updated data back to the file
-        writeToCSVFile(filePath, users);
+        // Update in MongoDB
+        csvFile.setUsers(users);
+        csvFile.setCsvContent(convertUsersToCSV(users));
+        csvFileRepository.save(csvFile);
 
-        return "User created successfully. File saved at: " + filePath;
+        return "User created successfully. Stored in MongoDB: " + filename;
     }
 
     /* ---------- UPDATE ---------- */
     /**
      * Update a user completely (PUT)
-     * File is automatically saved to configured directory
-     * @param file the uploaded CSV file
+     * @param filename the filename to fetch from DB
      * @param id the user ID to update
      * @param email new email
      * @param name new name
-     * @return success message with file path
+     * @return success message
      */
-    public String updateUser(MultipartFile file, int id, String email, String name) {
-        String filePath = saveUploadedFile(file);
-        List<User> users = parseCSVFile(file);
+    public String updateUser(String filename, int id, String email, String name) {
+        // Fetch from MongoDB
+        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
+        if (csvFileOpt.isEmpty()) {
+            throw new RuntimeException("File not found in database: " + filename);
+        }
+
+        CsvFile csvFile = csvFileOpt.get();
+        List<User> users = csvFile.getUsers();
 
         boolean found = false;
         for (User u : users) {
@@ -157,24 +179,31 @@ public class UserService {
             throw new RuntimeException("User with ID " + id + " not found");
         }
 
-        // Write updated data back to the file
-        writeToCSVFile(filePath, users);
+        // Update in MongoDB
+        csvFile.setUsers(users);
+        csvFile.setCsvContent(convertUsersToCSV(users));
+        csvFileRepository.save(csvFile);
 
-        return "User with ID " + id + " updated successfully. File saved at: " + filePath;
+        return "User with ID " + id + " updated successfully. Updated in MongoDB: " + filename;
     }
 
     /**
      * Partially update a user (PATCH)
-     * File is automatically saved to configured directory
-     * @param file the uploaded CSV file
+     * @param filename the filename to fetch from DB
      * @param id the user ID to update
      * @param email new email (optional)
      * @param name new name (optional)
-     * @return success message with file path
+     * @return success message
      */
-    public String patchUser(MultipartFile file, int id, String email, String name) {
-        String filePath = saveUploadedFile(file);
-        List<User> users = parseCSVFile(file);
+    public String patchUser(String filename, int id, String email, String name) {
+        // Fetch from MongoDB
+        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
+        if (csvFileOpt.isEmpty()) {
+            throw new RuntimeException("File not found in database: " + filename);
+        }
+
+        CsvFile csvFile = csvFileOpt.get();
+        List<User> users = csvFile.getUsers();
 
         boolean found = false;
         for (User u : users) {
@@ -194,23 +223,30 @@ public class UserService {
             throw new RuntimeException("User with ID " + id + " not found");
         }
 
-        // Write updated data back to the file
-        writeToCSVFile(filePath, users);
+        // Update in MongoDB
+        csvFile.setUsers(users);
+        csvFile.setCsvContent(convertUsersToCSV(users));
+        csvFileRepository.save(csvFile);
 
-        return "User with ID " + id + " partially updated successfully. File saved at: " + filePath;
+        return "User with ID " + id + " partially updated successfully. Updated in MongoDB: " + filename;
     }
 
     /* ---------- DELETE ---------- */
     /**
      * Delete a user by ID
-     * File is automatically saved to configured directory
-     * @param file the uploaded CSV file
+     * @param filename the filename to fetch from DB
      * @param id the user ID to delete
-     * @return success message with file path
+     * @return success message
      */
-    public String deleteUser(MultipartFile file, int id) {
-        String filePath = saveUploadedFile(file);
-        List<User> users = parseCSVFile(file);
+    public String deleteUser(String filename, int id) {
+        // Fetch from MongoDB
+        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
+        if (csvFileOpt.isEmpty()) {
+            throw new RuntimeException("File not found in database: " + filename);
+        }
+
+        CsvFile csvFile = csvFileOpt.get();
+        List<User> users = csvFile.getUsers();
 
         boolean found = false;
         Iterator<User> iterator = users.iterator();
@@ -227,10 +263,12 @@ public class UserService {
             throw new RuntimeException("User with ID " + id + " not found");
         }
 
-        // Write updated data back to the file
-        writeToCSVFile(filePath, users);
+        // Update in MongoDB
+        csvFile.setUsers(users);
+        csvFile.setCsvContent(convertUsersToCSV(users));
+        csvFileRepository.save(csvFile);
 
-        return "User with ID " + id + " deleted successfully. File saved at: " + filePath;
+        return "User with ID " + id + " deleted successfully. Updated in MongoDB: " + filename;
     }
 
     /* ---------- HELPERS ---------- */
@@ -262,10 +300,24 @@ public class UserService {
     }
 
     /**
-     * Get the configured upload directory
+     * Get file info from MongoDB
+     * @param filename the filename to search
+     * @return map with file details
      */
-    public String getUploadDirectory() {
-        return uploadDir;
+    public Map<String, Object> getFileInfo(String filename) {
+        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
+        if (csvFileOpt.isEmpty()) {
+            throw new RuntimeException("File not found in database: " + filename);
+        }
+
+        CsvFile csvFile = csvFileOpt.get();
+        return Map.of(
+            "id", csvFile.getId(),
+            "filename", csvFile.getFilename(),
+            "userCount", csvFile.getUsers().size(),
+            "uploadedAt", csvFile.getUploadedAt(),
+            "lastModified", csvFile.getLastModified()
+        );
     }
 }
 

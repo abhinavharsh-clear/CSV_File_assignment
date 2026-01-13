@@ -43,18 +43,12 @@
 			<version>5.7.1</version>
 		</dependency>
 
-		<!-- Persistence (optional for now, can be used later) -->
+		<!-- MongoDB -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
+			<artifactId>spring-boot-starter-data-mongodb</artifactId>
 		</dependency>
 
-		<!-- In-memory DB for development/testing -->
-		<dependency>
-			<groupId>com.h2database</groupId>
-			<artifactId>h2</artifactId>
-			<scope>runtime</scope>
-		</dependency>
 
 		<!-- Lombok (optional) -->
 		<dependency>

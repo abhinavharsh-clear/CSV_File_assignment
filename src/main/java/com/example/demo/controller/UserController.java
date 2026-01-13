@@ -21,9 +21,9 @@ public class UserController {
     /* ---------- READ ---------- */
     /**
      * Get all users from the uploaded CSV file
-     * File is automatically saved to Downloads directory
+     * File is automatically stored in MongoDB
      * @param file the CSV file uploaded with the request
-     * @return list of all users and the file path
+     * @return list of all users and MongoDB file ID
      */
     @PostMapping("/getAll")
     public ResponseEntity<?> getAllUsers(
@@ -31,14 +31,17 @@ public class UserController {
     ) {
         try {
             Map<String, Object> result = service.getAllUsers(file);
-            String filePath = (String) result.get("filePath");
+            String filename = (String) result.get("filename");
+            String fileId = (String) result.get("fileId");
             List<User> users = (List<User>) result.get("users");
 
             return ResponseEntity.ok(Map.of(
                     "message", "Users retrieved successfully",
-                    "filePath", filePath,
+                    "filename", filename,
+                    "mongoDbId", fileId,
                     "count", users.size(),
-                    "users", users
+                    "users", users,
+                    "note", "File stored in MongoDB. Use filename in subsequent requests."
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
@@ -49,29 +52,30 @@ public class UserController {
 
     /* ---------- CREATE ---------- */
     /**
-     * Create a new user in the CSV file
-     * File is automatically saved to Downloads directory
-     * @param file the CSV file uploaded with the request
+     * Create a new user in MongoDB
+     * @param filename the CSV filename (must be previously uploaded)
      * @param id the new user ID
      * @param email the new user email
      * @param name the new user name
-     * @return success message with file path
+     * @return success message
      */
     @PostMapping("/create")
     public ResponseEntity<?> createUser(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam String filename,
             @RequestParam int id,
             @RequestParam String email,
             @RequestParam String name
     ) {
         try {
-            String message = service.createUser(file, id, email, name);
+            String message = service.createUser(filename, id, email, name);
             return ResponseEntity.ok(Map.of(
                     "message", message,
+                    "filename", filename,
                     "userId", id,
                     "userEmail", email,
                     "userName", name,
-                    "operation", "CREATE"
+                    "operation", "CREATE",
+                    "storage", "MongoDB"
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
@@ -83,28 +87,29 @@ public class UserController {
     /* ---------- UPDATE ---------- */
     /**
      * Update a user completely (PUT)
-     * File is automatically saved to Downloads directory
-     * @param file the CSV file uploaded with the request
+     * @param filename the CSV filename stored in MongoDB
      * @param id the user ID to update
      * @param email new email
      * @param name new name
-     * @return success message with file path
+     * @return success message
      */
     @PostMapping("/{id}/update")
     public ResponseEntity<?> updateUser(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam String filename,
             @PathVariable int id,
             @RequestParam String email,
             @RequestParam String name
     ) {
         try {
-            String message = service.updateUser(file, id, email, name);
+            String message = service.updateUser(filename, id, email, name);
             return ResponseEntity.ok(Map.of(
                     "message", message,
+                    "filename", filename,
                     "userId", id,
                     "updatedEmail", email,
                     "updatedName", name,
-                    "operation", "UPDATE"
+                    "operation", "UPDATE",
+                    "storage", "MongoDB"
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
@@ -115,27 +120,28 @@ public class UserController {
 
     /**
      * Partially update a user (PATCH)
-     * File is automatically saved to Downloads directory
-     * @param file the CSV file uploaded with the request
+     * @param filename the CSV filename stored in MongoDB
      * @param id the user ID to update
      * @param email new email (optional)
      * @param name new name (optional)
-     * @return success message with file path
+     * @return success message
      */
-    @PostMapping("/{id}/patch")
+    @PatchMapping("/{id}/patch")
     public ResponseEntity<?> patchUser(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam String filename,
             @PathVariable int id,
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String name
     ) {
         try {
-            String message = service.patchUser(file, id, email, name);
+            String message = service.patchUser(filename, id, email, name);
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("message", message);
+            response.put("filename", filename);
             response.put("userId", id);
             response.put("operation", "PATCH");
+            response.put("storage", "MongoDB");
             if (email != null && !email.isEmpty()) {
                 response.put("updatedEmail", email);
             }
@@ -154,22 +160,46 @@ public class UserController {
     /* ---------- DELETE ---------- */
     /**
      * Delete a user by ID
-     * File is automatically saved to Downloads directory
-     * @param file the CSV file uploaded with the request
+     * @param filename the CSV filename stored in MongoDB
      * @param id the user ID to delete
-     * @return success message with file path
+     * @return success message
      */
-    @PostMapping("/{id}/delete")
+    @DeleteMapping("/{id}/delete")
     public ResponseEntity<?> deleteUser(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam String filename,
             @PathVariable int id
     ) {
         try {
-            String message = service.deleteUser(file, id);
+            String message = service.deleteUser(filename, id);
             return ResponseEntity.ok(Map.of(
                     "message", message,
+                    "filename", filename,
                     "deletedUserId", id,
-                    "operation", "DELETE"
+                    "operation", "DELETE",
+                    "storage", "MongoDB"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("error", e.getMessage())
+            );
+        }
+    }
+
+    /* ---------- FILE INFO ---------- */
+    /**
+     * Get information about a stored file in MongoDB
+     * @param filename the filename to query
+     * @return file details
+     */
+    @GetMapping("/info/{filename}")
+    public ResponseEntity<?> getFileInfo(
+            @PathVariable String filename
+    ) {
+        try {
+            Map<String, Object> fileInfo = service.getFileInfo(filename);
+            return ResponseEntity.ok(Map.of(
+                    "message", "File information retrieved",
+                    "fileInfo", fileInfo
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
