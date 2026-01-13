@@ -21,6 +21,7 @@ public class UserService {
 
     /**
      * Parse and load users from uploaded CSV file
+     * 
      * @param file the uploaded CSV file
      * @return list of users parsed from the file
      */
@@ -44,6 +45,7 @@ public class UserService {
 
     /**
      * Convert CSV content to string for storage
+     * 
      * @param file the uploaded CSV file
      * @return CSV content as string
      */
@@ -57,6 +59,7 @@ public class UserService {
 
     /**
      * Write users to CSV string format
+     * 
      * @param users the list of users
      * @return CSV formatted string
      */
@@ -75,6 +78,7 @@ public class UserService {
     /**
      * Get all users from the uploaded CSV file
      * Uploads file to MongoDB
+     * 
      * @param file the uploaded CSV file
      * @return map with filename, users, and MongoDB ID
      */
@@ -102,19 +106,19 @@ public class UserService {
         csvFileRepository.save(csvFile);
 
         return Map.of(
-            "filename", filename,
-            "fileId", csvFile.getId(),
-            "users", users
-        );
+                "filename", filename,
+                "fileId", csvFile.getId(),
+                "users", users);
     }
 
     /* ---------- CREATE ---------- */
     /**
      * Create a new user
+     * 
      * @param filename the filename to fetch from DB
-     * @param id the new user ID
-     * @param email the new user email
-     * @param name the new user name
+     * @param id       the new user ID
+     * @param email    the new user email
+     * @param name     the new user name
      * @return success message
      */
     public String createUser(String filename, int id, String email, String name) {
@@ -149,10 +153,11 @@ public class UserService {
     /* ---------- UPDATE ---------- */
     /**
      * Update a user completely (PUT)
+     * 
      * @param filename the filename to fetch from DB
-     * @param id the user ID to update
-     * @param email new email
-     * @param name new name
+     * @param id       the user ID to update
+     * @param email    new email
+     * @param name     new name
      * @return success message
      */
     public String updateUser(String filename, int id, String email, String name) {
@@ -189,10 +194,11 @@ public class UserService {
 
     /**
      * Partially update a user (PATCH)
+     * 
      * @param filename the filename to fetch from DB
-     * @param id the user ID to update
-     * @param email new email (optional)
-     * @param name new name (optional)
+     * @param id       the user ID to update
+     * @param email    new email (optional)
+     * @param name     new name (optional)
      * @return success message
      */
     public String patchUser(String filename, int id, String email, String name) {
@@ -234,8 +240,9 @@ public class UserService {
     /* ---------- DELETE ---------- */
     /**
      * Delete a user by ID
+     * 
      * @param filename the filename to fetch from DB
-     * @param id the user ID to delete
+     * @param id       the user ID to delete
      * @return success message
      */
     public String deleteUser(String filename, int id) {
@@ -292,8 +299,7 @@ public class UserService {
             return new User(
                     Integer.parseInt(map.get("id")),
                     map.get("email"),
-                    map.get("name")
-            );
+                    map.get("name"));
         } catch (Exception e) {
             throw new RuntimeException("Invalid CSV format in line: " + line);
         }
@@ -301,23 +307,20 @@ public class UserService {
 
     /**
      * Get file info from MongoDB
+     * 
      * @param filename the filename to search
      * @return map with file details
      */
     public Map<String, Object> getFileInfo(String filename) {
-        Optional<CsvFile> csvFileOpt = csvFileRepository.findByFilename(filename);
-        if (csvFileOpt.isEmpty()) {
-            throw new RuntimeException("File not found in database: " + filename);
-        }
+        CsvFile csvFile = csvFileRepository.findByFilename(filename)
+                .orElseThrow(() -> new RuntimeException("File not found in database: " + filename));
 
-        CsvFile csvFile = csvFileOpt.get();
-        return Map.of(
-            "id", csvFile.getId(),
-            "filename", csvFile.getFilename(),
-            "userCount", csvFile.getUsers().size(),
-            "uploadedAt", csvFile.getUploadedAt(),
-            "lastModified", csvFile.getLastModified()
-        );
+        Map<String, Object> result = new HashMap<>();
+        result.put("id", csvFile.getId());
+        result.put("filename", csvFile.getFilename());
+        result.put("userCount", csvFile.getUsers().size());
+        result.put("uploadedAt", csvFile.getUploadedAt());
+        result.put("lastModified", csvFile.getLastModified());
+        return result;
     }
 }
-
